@@ -1,0 +1,897 @@
+# CAP Theorem — Distributed Systems
+
+> A practical, engineering-focused exploration of the **CAP Theorem**, distributed systems trade-offs, consistency models, partition handling, and real-world system design decisions.
+
+![CAP Theorem Overview](diagrams/cap-theorem-overview.png)
+
+---
+
+## 📌 Overview
+
+The **CAP Theorem** is one of the foundational concepts in distributed systems.
+
+It explains a fundamental trade-off that occurs when a distributed system experiences a **network partition**:
+
+> A distributed system cannot simultaneously guarantee strong **Consistency** and **Availability** while also tolerating a **Partition**.
+
+In real-world distributed systems, network partitions are unavoidable. Therefore, system architects generally need to make a conscious trade-off between:
+
+```text
+                 CAP
+                  │
+                  P
+            Partition Tolerance
+                /     \
+               /       \
+              C         A
+        Consistency  Availability
+              \       /
+               \     /
+                CP / AP
+```
+
+This repository explains the concept from both a **theoretical** and **practical engineering** perspective.
+
+---
+
+## 🎯 Goals of This Repository
+
+This project is designed to answer questions such as:
+
+* What exactly does CAP Theorem mean?
+* Why is Partition Tolerance important?
+* What happens when two replicas lose communication?
+* Why can't we guarantee both strong Consistency and Availability during a partition?
+* When should a system prefer CP?
+* When should a system prefer AP?
+* What does eventual consistency actually mean?
+* How do replication and quorum protocols work?
+* How do real distributed databases handle these trade-offs?
+* How should CAP influence system design decisions?
+
+---
+
+# 🧠 Core Concepts
+
+## 1. Consistency
+
+Consistency means that all clients observe the same latest committed state of the system.
+
+For example:
+
+```text
+Initial State
+
+Node A ─────── Node B
+Balance = ₹100 Balance = ₹100
+```
+
+A successful write changes the balance:
+
+```text
+WRITE ₹50
+     │
+     ▼
+Node A
+
+Balance = ₹50
+```
+
+With strong consistency, a subsequent read should not return the old value:
+
+```text
+READ
+ │
+ ▼
+Node B
+
+Expected → ₹50
+```
+
+A system that cannot guarantee the latest value may reject or delay the operation.
+
+---
+
+## 2. Availability
+
+Availability means that every valid request receives a response from the system.
+
+For example:
+
+```text
+Client
+  │
+  ▼
+Node A ─── X ─── Node B
+           Network
+          Partition
+```
+
+Even though Node A and Node B cannot communicate, an available system may continue serving requests.
+
+The response may temporarily contain stale information depending on the consistency model.
+
+---
+
+## 3. Partition Tolerance
+
+A network partition occurs when distributed nodes cannot communicate with each other.
+
+```text
+             NETWORK PARTITION
+                    X
+                   / \
+                  /   \
+                 /     \
+            Node A    Node B
+              │          │
+           Data = 50  Data = 100
+```
+
+The nodes are still running, but communication between them has failed.
+
+Partition tolerance means the system is designed to continue operating despite such failures.
+
+### Why is P practically important?
+
+Distributed systems operate across:
+
+* Machines
+* Availability zones
+* Datacenters
+* Regions
+* Networks
+
+Failures can occur because of:
+
+* Network latency
+* Packet loss
+* Hardware failures
+* Service crashes
+* Datacenter outages
+* DNS failures
+* Cloud infrastructure failures
+
+Therefore, production distributed systems generally have to assume that partitions can happen.
+
+---
+
+# ⚔️ What Happens During a Partition?
+
+Consider two replicas:
+
+```text
+Before Partition
+
+Node A                    Node B
+Data = 100  ◄──────────►  Data = 100
+```
+
+A write occurs:
+
+```text
+WRITE = 50
+
+Node A                    Node B
+Data = 50   ◄──── X ────► Data = 100
+                         Partition
+```
+
+Now a client sends:
+
+```text
+READ → Node B
+```
+
+Node B has two choices.
+
+### Option 1 — Preserve Consistency
+
+Node B cannot verify whether its value is current.
+
+Therefore:
+
+```text
+READ
+ │
+ ▼
+Node B
+ │
+ └── Cannot guarantee latest value
+          │
+          ▼
+     Reject / Delay
+```
+
+Result:
+
+```text
+Consistency  ✅
+Availability ❌
+Partition Tolerance ✅
+```
+
+This is a **CP** approach.
+
+---
+
+### Option 2 — Preserve Availability
+
+Node B returns the value it currently has:
+
+```text
+READ
+ │
+ ▼
+Node B
+ │
+ └── Return available data
+          │
+          ▼
+        ₹100
+```
+
+Result:
+
+```text
+Consistency  ❌
+Availability ✅
+Partition Tolerance ✅
+```
+
+This is an **AP** approach.
+
+---
+
+# 🔥 CP vs AP
+
+| Property            | CP                           | AP                       |
+| ------------------- | ---------------------------- | ------------------------ |
+| Consistency         | Strong priority              | Relaxed / eventual       |
+| Availability        | May be sacrificed            | Strong priority          |
+| Partition Tolerance | Yes                          | Yes                      |
+| During partition    | Reject / delay some requests | Continue serving         |
+| Stale reads         | Avoided                      | Possible                 |
+| Best for            | Correctness-critical systems | Highly available systems |
+
+---
+
+# 🟢 CP Systems
+
+A CP system prioritizes:
+
+```text
+Consistency + Partition Tolerance
+```
+
+During a network partition:
+
+```text
+Correctness
+    >
+Availability
+```
+
+If the system cannot guarantee correct data, it may reject or delay the operation.
+
+### Typical use cases
+
+* Banking transactions
+* Inventory reservation
+* Distributed locks
+* Booking systems
+* Financial ledgers
+* Critical metadata
+
+### Example
+
+Suppose only one flight seat remains:
+
+```text
+Available Seats = 1
+```
+
+Two users attempt to book simultaneously.
+
+A system prioritizing correctness must prevent:
+
+```text
+User A → SUCCESS
+User B → SUCCESS
+
+❌ 2 bookings for 1 seat
+```
+
+Strong consistency is more important than temporarily accepting every request.
+
+---
+
+# 🔵 AP Systems
+
+An AP system prioritizes:
+
+```text
+Availability + Partition Tolerance
+```
+
+During a partition:
+
+```text
+Availability
+      >
+Immediate Consistency
+```
+
+The system continues serving requests even if some responses are temporarily stale.
+
+### Typical use cases
+
+* Social media feeds
+* Product catalogs
+* Recommendation systems
+* Analytics dashboards
+* Content delivery
+* Non-critical user activity
+
+For example:
+
+```text
+User A creates post
+        │
+        ▼
+    Replica A
+        │
+     Network
+     delay
+        │
+        ▼
+    Replica B
+```
+
+Replica B may temporarily not show the post.
+
+Eventually:
+
+```text
+Replica A = Post X
+Replica B = Post X
+Replica C = Post X
+```
+
+This is **eventual consistency**.
+
+---
+
+# 🟡 What About CA?
+
+CA means:
+
+```text
+Consistency + Availability
+```
+
+But without Partition Tolerance.
+
+The problem is that once a network partition occurs, the system cannot guarantee both consistency and availability.
+
+Therefore:
+
+```text
+CA
+ │
+ └── Requires no partition
+```
+
+This model is generally relevant to non-distributed or single-node environments rather than large distributed architectures.
+
+---
+
+# 🔄 Consistency Models
+
+CAP should not be confused with the different consistency models used by distributed systems.
+
+## Strong Consistency
+
+After a successful write:
+
+```text
+WRITE X
+  │
+  ▼
+All subsequent reads → X
+```
+
+The system provides a strong guarantee that reads observe the latest successful write.
+
+---
+
+## Eventual Consistency
+
+Updates propagate asynchronously:
+
+```text
+        WRITE X
+           │
+           ▼
+       Replica A
+           │
+     asynchronous
+      replication
+       /       \
+      ▼         ▼
+ Replica B   Replica C
+```
+
+For a period:
+
+```text
+A = X
+B = Old
+C = Old
+```
+
+Eventually:
+
+```text
+A = X
+B = X
+C = X
+```
+
+This allows systems to favor availability and scalability.
+
+---
+
+# 🗳️ Quorum
+
+A common technique used in replicated systems is **quorum-based replication**.
+
+Suppose:
+
+```text
+N = 3 replicas
+```
+
+```text
+        ┌─────────┐
+        │ Replica │
+        │    A    │
+        └─────────┘
+             │
+             │
+        ┌────▼────┐
+        │ Replica │
+        │    B    │
+        └─────────┘
+             │
+        ┌────▼────┐
+        │ Replica │
+        │    C    │
+        └─────────┘
+```
+
+We can define:
+
+```text
+N = Total replicas
+W = Write quorum
+R = Read quorum
+```
+
+A common quorum condition is:
+
+```text
+R + W > N
+```
+
+For example:
+
+```text
+N = 3
+R = 2
+W = 2
+```
+
+Then:
+
+```text
+R + W = 4
+
+4 > 3
+```
+
+Therefore, read and write quorums overlap, helping reads observe the latest acknowledged write under the assumptions of the chosen protocol.
+
+> Quorum mathematics alone does not automatically guarantee linearizability; the complete replication and conflict-resolution protocol matters.
+
+---
+
+# 🏗️ Distributed System Architecture
+
+A simplified replicated architecture:
+
+```text
+                     ┌──────────────┐
+                     │    Client    │
+                     └──────┬───────┘
+                            │
+                            ▼
+                     ┌──────────────┐
+                     │ Load Balancer│
+                     └──────┬───────┘
+                            │
+                 ┌──────────┼──────────┐
+                 ▼          ▼          ▼
+              Node A     Node B     Node C
+                 │          │          │
+                 └──────────┼──────────┘
+                            │
+                       Replication
+                            │
+                 ┌──────────┴──────────┐
+                 │                     │
+          Strong Consistency    Eventual Consistency
+                 │                     │
+                CP                    AP
+```
+
+The exact architecture depends on:
+
+* Replication strategy
+* Leader election
+* Consensus protocol
+* Quorum configuration
+* Failure detection
+* Conflict resolution
+* Data model
+* Business requirements
+
+---
+
+# 🧩 CAP Is a Business Decision Too
+
+CAP should not be treated as:
+
+```text
+"Database X = CP"
+"Database Y = AP"
+```
+
+Real architecture decisions depend on the **specific workload and consistency requirements**.
+
+Ask:
+
+### 1. Can stale data be tolerated?
+
+```text
+YES → AP may be appropriate
+NO  → Stronger consistency may be required
+```
+
+### 2. Can requests be rejected during failures?
+
+```text
+YES → CP may be acceptable
+NO  → Availability becomes more important
+```
+
+### 3. What is the business impact?
+
+For example:
+
+```text
+Social Feed
+     ↓
+Stale post for a few seconds
+     ↓
+Usually acceptable
+```
+
+But:
+
+```text
+Bank Account
+     ↓
+Incorrect balance
+     ↓
+Potentially unacceptable
+```
+
+---
+
+# 🌍 Real-World Design Examples
+
+## Banking
+
+Priority:
+
+```text
+Consistency
+     >
+Availability
+```
+
+Incorrect financial state can be significantly more damaging than temporarily rejecting a transaction.
+
+---
+
+## Social Media
+
+Priority:
+
+```text
+Availability
+     >
+Immediate Consistency
+```
+
+A slightly stale feed is generally preferable to making the entire feed unavailable.
+
+---
+
+## E-Commerce Catalog
+
+Product information can often tolerate temporary replication lag.
+
+```text
+Product updated
+      │
+      ▼
+Replica A → New price
+Replica B → Old price
+      │
+      ▼
+Eventually synchronized
+```
+
+The exact consistency requirement depends on the field. Pricing during checkout, for example, may require stronger guarantees than a cached product description.
+
+---
+
+## Seat / Inventory Reservation
+
+A limited resource creates a stronger consistency requirement:
+
+```text
+1 seat
+│
+├── User A → reserve
+└── User B → reserve
+```
+
+The system must prevent overselling.
+
+This often requires stronger coordination than a normal read-heavy catalog.
+
+---
+
+# ⚠️ Common CAP Misconceptions
+
+### ❌ "CAP means you can freely choose any two."
+
+Oversimplified.
+
+The important point is:
+
+> **When a partition occurs, a distributed system cannot guarantee both strong consistency and availability simultaneously.**
+
+---
+
+### ❌ "CAP consistency is the same as ACID consistency."
+
+They are different concepts.
+
+CAP:
+
+```text
+Distributed-system consistency
+```
+
+ACID:
+
+```text
+Transaction consistency
+```
+
+---
+
+### ❌ "AP means the system has no consistency."
+
+Wrong.
+
+AP systems can provide **eventual consistency** or other weaker consistency guarantees.
+
+---
+
+### ❌ "CP means the system is always unavailable."
+
+Wrong.
+
+CP systems are generally available during normal operation.
+
+The trade-off becomes important **during a partition**.
+
+---
+
+### ❌ "One database is always CP and another is always AP."
+
+Too simplistic.
+
+Modern distributed databases may support different consistency levels, replication strategies, and configurations.
+
+---
+
+# 🧪 Practical Implementation Roadmap
+
+This repository will eventually contain small implementations demonstrating these concepts.
+
+```text
+Phase 1
+  │
+  ├── CAP fundamentals
+  ├── Consistency
+  ├── Availability
+  └── Partition Tolerance
+       │
+       ▼
+Phase 2
+  │
+  ├── CP simulation
+  ├── AP simulation
+  └── Network partition simulation
+       │
+       ▼
+Phase 3
+  │
+  ├── Replication
+  ├── Leader / Follower
+  ├── Quorum
+  └── Failure handling
+       │
+       ▼
+Phase 4
+  │
+  ├── Eventual consistency
+  ├── Conflict resolution
+  └── Retry / timeout behaviour
+       │
+       ▼
+Phase 5
+  │
+  └── Production-style distributed system
+```
+
+---
+
+# 📁 Repository Structure
+
+```text
+cap-theorem/
+│
+├── README.md
+│
+├── diagrams/
+│   └── cap-theorem-overview.png
+│
+├── notes/
+│   ├── 01-cap-theorem.md
+│   ├── 02-consistency.md
+│   ├── 03-availability.md
+│   ├── 04-partition-tolerance.md
+│   ├── 05-cp-vs-ap.md
+│   └── 06-real-world-examples.md
+│
+└── examples/
+    ├── cp-system/
+    └── ap-system/
+```
+
+---
+
+# 🎓 Interview Perspective
+
+When asked:
+
+> **"Explain CAP Theorem."**
+
+A strong answer should not simply say:
+
+```text
+CAP = Consistency + Availability + Partition Tolerance
+```
+
+Instead, explain the failure scenario:
+
+```text
+Normal State
+     │
+     ▼
+Replicas communicate
+     │
+     ▼
+Network Partition
+     │
+     ├───────────────┐
+     ▼               ▼
+Choose C           Choose A
+     │               │
+     ▼               ▼
+CP                AP
+Reject/Delay      Serve available data
+```
+
+Then connect the choice to the business requirement.
+
+---
+
+# 💡 Key Takeaways
+
+* CAP applies to **distributed systems**.
+* Partition tolerance is a fundamental requirement for systems operating across unreliable networks.
+* During a partition, strong consistency and availability cannot both be guaranteed.
+* **CP** prioritizes correctness/consistency during partitions.
+* **AP** prioritizes availability during partitions.
+* AP systems can use eventual consistency.
+* CAP is not simply a database-labeling exercise.
+* Real architecture depends on workload and business requirements.
+* Quorum, replication, consensus, and conflict resolution are important implementation mechanisms.
+* The right question is not **"Which CAP type is better?"**
+* The right question is:
+
+> **"What guarantees does this business operation actually require?"**
+
+---
+
+## 🚀 Next Topics
+
+This repository will continue with:
+
+```text
+CAP Theorem
+     ↓
+Consistency Models
+     ↓
+Replication
+     ↓
+Quorum
+     ↓
+Leader Election
+     ↓
+Consensus
+     ↓
+Raft
+     ↓
+Sharding
+     ↓
+Consistent Hashing
+     ↓
+Distributed Transactions
+     ↓
+Eventual Consistency
+     ↓
+Conflict Resolution
+     ↓
+Production System Design
+```
+
+---
+
+## 👨‍💻 Author
+
+**Vishal Singh**
+
+B.Tech Computer Science & Engineering
+
+Focused on:
+
+* Java
+* Spring Boot
+* Backend Engineering
+* Distributed Systems
+* System Design
+* Data Structures & Algorithms
+
+---
+
+> **System Design Principle:**
+> Don't choose technology first. Define the guarantees your system needs, understand the failure modes, and then choose the architecture.
