@@ -895,3 +895,270 @@ Focused on:
 
 > **System Design Principle:**
 > Don't choose technology first. Define the guarantees your system needs, understand the failure modes, and then choose the architecture.
+
+
+---
+
+# 🚦 High-Concurrency Food Delivery System
+
+A practical system-design exploration of how a food-delivery platform such as Swiggy can handle **millions of concurrent users**, route requests through an API Gateway, and prevent **inventory overselling** when multiple users attempt to purchase the same limited item simultaneously.
+
+![High-Concurrency Food Delivery System](diagrams/high-concurrency-food-delivery-system-design.png)
+
+## 🏗️ High-Level Architecture
+
+```text
+                         Millions of Users
+                                │
+                                ▼
+                         Load Balancer
+                                │
+                                ▼
+                          API Gateway
+                                │
+              ┌─────────────────┼─────────────────┐
+              ▼                 ▼                 ▼
+        User Service      Order Service     Restaurant Service
+                                │
+                                ▼
+                        Inventory Service
+                                │
+                    ┌───────────┴───────────┐
+                    ▼                       ▼
+               Redis Cache             Database
+                                            │
+                                      Read Replicas
+
+                                │
+                                ▼
+                         Kafka / RabbitMQ
+                     ┌──────────┼──────────┐
+                     ▼          ▼          ▼
+                Payment   Notification  Analytics
+```
+
+### API Gateway Responsibilities
+
+The API Gateway acts as the **single entry point** for client requests.
+
+Typical responsibilities include:
+
+- Request routing
+- Authentication
+- Authorization
+- Rate limiting
+- Request filtering
+- Centralized logging and monitoring
+
+The API Gateway does **not** own business logic such as deciding which user gets the last pizza. That responsibility belongs to the appropriate domain service, such as the Order or Inventory Service.
+
+---
+
+## 🔥 Concurrent Inventory Problem
+
+Consider a restaurant with:
+
+```text
+Pizza Stock = 2
+```
+
+Three users send requests at nearly the same time:
+
+```text
+User A ─┐
+User B ─┼──> Order Service ──> Inventory Service
+User C ─┘
+```
+
+A naive implementation could cause a race condition:
+
+```text
+User A → Read stock = 2
+User B → Read stock = 2
+User C → Read stock = 2
+
+All three believe the item is available.
+```
+
+This can result in **overselling** if the inventory update is not concurrency-safe.
+
+### Atomic Inventory Deduction
+
+A safer approach is to make the stock deduction atomic:
+
+```sql
+UPDATE inventory
+SET stock = stock - 1
+WHERE item_id = 101
+AND stock > 0;
+```
+
+Then inspect the affected-row count:
+
+```text
+1 row affected → Reservation successful
+0 rows affected → Out of stock
+```
+
+For two pizzas and three concurrent users:
+
+```text
+Initial stock = 2
+
+User A → SUCCESS → stock = 1
+User B → SUCCESS → stock = 0
+User C → FAILED  → Out of Stock
+```
+
+The important guarantee is:
+
+```text
+2 available items
+        ↓
+2 successful allocations
+        ↓
+1 rejected request
+        ↓
+No overselling
+```
+
+---
+
+## 🔐 Reservation + Payment Flow
+
+Inventory allocation becomes more complex when payment is involved.
+
+A robust flow can use a temporary reservation:
+
+```text
+Add Item to Cart
+       │
+       ▼
+Reserve Item
+       │
+       ▼
+Temporary Hold
+       │
+       ▼
+Payment Processing
+      / \
+     /   \
+    ▼     ▼
+Success  Failed / Timeout
+   │          │
+   ▼          ▼
+Confirm     Release
+Order       Reservation
+   │          │
+   ▼          ▼
+Inventory   Item Available
+Deducted     Again
+```
+
+A reservation can have an expiry time. If payment does not complete within that period, the reservation is released so another customer can purchase the item.
+
+---
+
+## ⚡ Handling Millions of Concurrent Users
+
+A production-scale system cannot depend on one application instance.
+
+Common scalability mechanisms include:
+
+```text
+Horizontal Scaling
+        +
+Load Balancing
+        +
+Caching
+        +
+Database Replication
+        +
+Asynchronous Messaging
+```
+
+### Horizontal Scaling
+
+```text
+Order Service
+     │
+ ┌───┼───┬───┐
+ ▼   ▼   ▼   ▼
+Pod Pod Pod Pod
+```
+
+More instances can handle increased traffic.
+
+### Caching
+
+Frequently accessed data can be served through Redis to reduce database load.
+
+### Database Replication
+
+Read replicas can handle read-heavy workloads while the primary database handles writes.
+
+### Messaging
+
+Kafka/RabbitMQ can decouple asynchronous operations such as:
+
+- Notifications
+- Analytics
+- Order events
+- Payment events
+- Other background processing
+
+---
+
+## 🛡️ Reliability and Failure Handling
+
+Large distributed systems assume that failures will happen.
+
+Important techniques include:
+
+- Timeouts
+- Retries with backoff
+- Circuit breakers
+- Idempotency
+- Graceful degradation
+- Health checks
+- Centralized logging
+- Metrics
+- Distributed tracing
+
+### Payment Idempotency
+
+If a payment request is retried because of a network failure, the system must avoid charging the customer twice.
+
+An idempotency key can associate multiple retries with the same logical payment operation:
+
+```text
+Payment Request
+      │
+      ▼
+Idempotency Key
+      │
+      ├── First request → Process payment
+      │
+      └── Retry        → Return existing result
+```
+
+---
+
+## 🎯 System Design Principles Learned
+
+The key lesson from this scenario is that **API Gateway, scalability, and concurrency control solve different problems**.
+
+| Problem | Main mechanism |
+|---|---|
+| Route requests to services | API Gateway |
+| Handle millions of requests | Load Balancing + Horizontal Scaling |
+| Prevent inventory overselling | Atomic Updates + Transactions |
+| Temporarily hold inventory | Reservation + Expiry |
+| Avoid duplicate payments | Idempotency |
+| Reduce database reads | Caching |
+| Handle asynchronous work | Kafka / RabbitMQ |
+| Survive service failures | Timeout + Retry + Circuit Breaker |
+| Scale read-heavy workloads | Database Replication |
+
+> **System design is not about adding more components. It is about choosing the right guarantees and mechanisms for each failure and concurrency scenario.**
+
