@@ -1162,3 +1162,302 @@ The key lesson from this scenario is that **API Gateway, scalability, and concur
 
 > **System design is not about adding more components. It is about choosing the right guarantees and mechanisms for each failure and concurrency scenario.**
 
+
+---
+
+# 🚀 CI/CD Pipeline — How It Works
+
+A practical overview of how modern software teams automate **build, test, delivery, deployment, and monitoring** using a CI/CD pipeline.
+
+![CI/CD Pipeline Overview](diagrams/ci-cd-pipeline-overview.png)
+
+## 📌 What is CI/CD?
+
+**CI/CD** stands for **Continuous Integration** and **Continuous Delivery / Continuous Deployment**.
+
+```text
+Developer writes code
+        │
+        ▼
+Commit & Push to Git
+        │
+        ▼
+Continuous Integration (CI)
+        │
+        ├── Checkout source code
+        ├── Install dependencies
+        ├── Build application
+        ├── Run tests
+        ├── Code quality / security checks
+        └── Create artifact
+        │
+        ▼
+Artifact Repository
+        │
+        ▼
+Continuous Delivery / Deployment (CD)
+        │
+        ├── Deploy to Development
+        ├── Integration Tests
+        ├── Deploy to Staging
+        ├── Acceptance Tests
+        └── Deploy to Production
+        │
+        ▼
+Application Live
+        │
+        ▼
+Monitoring & Logging
+```
+
+CI/CD reduces manual deployment work and helps teams release software faster and more consistently.
+
+---
+
+## 🔵 Continuous Integration (CI)
+
+Continuous Integration means developers frequently merge code into a shared repository and every change is automatically validated.
+
+A typical CI flow is:
+
+```text
+Code Push
+   │
+   ▼
+Checkout Code
+   │
+   ▼
+Install Dependencies
+   │
+   ▼
+Build
+   │
+   ▼
+Unit Tests
+   │
+   ▼
+Code Quality / Security Scan
+   │
+   ▼
+Create Artifact
+```
+
+If the build or tests fail, the pipeline stops and the issue should be fixed before deployment.
+
+---
+
+## 🟣 Continuous Delivery / Deployment (CD)
+
+After CI successfully produces a deployable artifact, the CD pipeline moves that artifact through environments.
+
+```text
+Artifact
+   │
+   ▼
+Development
+   │
+   ▼
+Integration Tests
+   │
+   ▼
+Staging
+   │
+   ▼
+Acceptance Tests
+   │
+   ▼
+Production
+```
+
+**Continuous Delivery** keeps the application ready for production, while the final production release may require approval.
+
+**Continuous Deployment** automatically deploys every change that successfully passes the pipeline.
+
+---
+
+## 📦 Artifact Repository
+
+The CI pipeline should create an immutable deployable artifact instead of rebuilding the application separately for every environment.
+
+Examples include:
+
+- JAR / WAR files
+- Docker images
+- Versioned application packages
+
+Artifact repositories such as **Docker Hub, Nexus, or Artifactory** can store these build outputs.
+
+```text
+CI Build
+   │
+   ▼
+Docker Image / JAR
+   │
+   ▼
+Artifact Repository
+   │
+   ▼
+CD Pipeline
+```
+
+---
+
+## ☕ Spring Boot CI/CD Example
+
+Consider a Java Spring Boot backend.
+
+```text
+Developer
+   │
+   ▼
+GitHub
+   │
+   ▼
+GitHub Actions / Jenkins
+   │
+   ▼
+Maven Build
+   │
+   ▼
+JUnit Tests
+   │
+   ▼
+JAR Created
+   │
+   ▼
+Docker Image Built
+   │
+   ▼
+Docker Registry
+   │
+   ▼
+Kubernetes
+   │
+   ▼
+Production
+```
+
+A possible execution flow is:
+
+1. Developer pushes code to GitHub.
+2. GitHub Actions or Jenkins detects the change.
+3. Maven compiles and builds the application.
+4. JUnit tests run automatically.
+5. A deployable JAR is created.
+6. A Docker image is built.
+7. The image is pushed to an artifact/container registry.
+8. Kubernetes pulls the new image.
+9. The new application version is deployed.
+10. Health checks and monitoring verify the deployment.
+
+---
+
+## 🛠️ Common CI/CD Tools
+
+| Stage | Common Tools |
+|---|---|
+| Source Control | GitHub, GitLab, Bitbucket |
+| CI | Jenkins, GitHub Actions, GitLab CI, CircleCI |
+| Build | Maven, Gradle, npm |
+| Testing | JUnit, Selenium, pytest |
+| Containerization | Docker |
+| Artifact Repository | Docker Hub, Nexus, Artifactory |
+| Orchestration | Kubernetes |
+| Deployment | Argo CD, Helm, Spinnaker |
+| Monitoring | Prometheus, Grafana |
+
+---
+
+## 🏗️ Real-World Pipeline Architecture
+
+```text
+Developer
+   │
+   ▼
+Git Repository
+   │
+   ▼
+CI Server
+   │
+   ├── Build
+   ├── Test
+   └── Security / Quality Checks
+   │
+   ▼
+Artifact Registry
+   │
+   ▼
+CD
+   │
+   ▼
+Kubernetes Cluster
+   │
+   ▼
+Application
+   │
+   ▼
+Monitoring + Logging
+```
+
+The important idea is that **the exact same tested artifact should move through environments** rather than rebuilding different versions for development, staging, and production.
+
+---
+
+## 🛡️ Production Considerations
+
+A production CI/CD pipeline should also consider:
+
+- Secrets management
+- Environment-specific configuration
+- Automated testing
+- Security scanning
+- Health checks
+- Deployment approvals when required
+- Rollback strategy
+- Blue-green or canary deployments
+- Monitoring and alerting
+- Audit logs
+
+If the newly deployed version fails health checks or causes errors, the system should support quickly rolling back to a known stable version.
+
+---
+
+## 🎯 Benefits of CI/CD
+
+- Faster software releases
+- Early bug detection
+- Reduced manual deployment effort
+- Repeatable and consistent deployments
+- Easier rollback
+- Better collaboration between developers and operations
+- Improved reliability and scalability of the release process
+
+---
+
+## 🎓 Interview Perspective
+
+When asked **"How does a CI/CD pipeline work?"**, a strong short answer is:
+
+> A developer pushes code to a Git repository, which triggers the CI pipeline. The pipeline builds the application, runs automated tests and quality checks, and creates a versioned artifact such as a JAR or Docker image. The CD pipeline then promotes the same tested artifact through development and staging and finally deploys it to production. After deployment, health checks, logs, and metrics are monitored, with rollback mechanisms available if the release fails.
+
+The key flow to remember is:
+
+```text
+Code
+ ↓
+Git Push
+ ↓
+Build
+ ↓
+Test
+ ↓
+Package
+ ↓
+Artifact
+ ↓
+Deploy
+ ↓
+Monitor
+```
+
+> **CI/CD Principle:** Build once, test automatically, deploy the same version consistently, and always be able to detect and recover from a bad release.
